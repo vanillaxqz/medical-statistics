@@ -2,7 +2,8 @@ import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTableWidget, QTableWidgetItem, QMessageBox,
     QDockWidget, QWidget, QVBoxLayout, QPushButton, QScrollArea,
-    QToolBar, QInputDialog, QLabel, QFileDialog
+    QToolBar, QInputDialog, QLabel, QFileDialog,
+    QToolButton, QMenu
 )
 from PyQt6.QtCore import Qt
 import plots
@@ -14,21 +15,50 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.setWindowTitle("Medical Statistics")
-        self.setMinimumSize(700, 375)
+        self.setMinimumSize(1000, 600)
 
         # toolbar
         toolbar = QToolBar("Toolbar")
         toolbar.setMovable(False)
         action_import = toolbar.addAction("Import Data")
         action_import.triggered.connect(self.import_data)
-        # toolbar.addAction("New Spreadsheet")
+
+        toolbar.addAction("New Spreadsheet")
+
         action_save = toolbar.addAction("Export File")
         action_save.triggered.connect(self.export_file)
+
+        insertButton = QToolButton()
+        insertButton.setText("Insert")
+        insertButton.clicked.connect(self.insert_column)
+        insertMenu = QMenu(insertButton)
+        actionInsertRow = insertMenu.addAction("Insert Row")
+        actionInsertColumn = insertMenu.addAction("Insert Column")
+        insertButton.setMenu(insertMenu)
+        insertButton.setPopupMode(
+            QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        actionInsertRow.triggered.connect(self.insert_row)
+        actionInsertColumn.triggered.connect(self.insert_column)
+        toolbar.addWidget(insertButton)
+
+        deleteButton = QToolButton()
+        deleteButton.setText("Delete")
+        deleteButton.clicked.connect(self.delete_column)
+        deleteMenu = QMenu(deleteButton)
+        actionDeleteRow = deleteMenu.addAction("Delete Row")
+        actionDeleteColumn = deleteMenu.addAction("Delete Column")
+        deleteButton.setMenu(deleteMenu)
+        deleteButton.setPopupMode(
+            QToolButton.ToolButtonPopupMode.MenuButtonPopup)
+        actionDeleteRow.triggered.connect(self.delete_row)
+        actionDeleteColumn.triggered.connect(self.delete_column)
+        toolbar.addWidget(deleteButton)
+
         self.addToolBar(toolbar)
 
         # spreadsheet
-        self.table = QTableWidget(10, 5)
-        headers = [f"var{i}" for i in range(1, 6)]
+        self.table = QTableWidget(15, 8)
+        headers = [f"var{i}" for i in range(1, 9)]
         self.table.setHorizontalHeaderLabels(headers)
         self.table.horizontalHeader().sectionDoubleClicked.connect(self.rename_column)
         self.setCentralWidget(self.table)
@@ -36,7 +66,7 @@ class MainWindow(QMainWindow):
         # sidebar
         dock = QDockWidget(self)
         dock.setFixedWidth(100)
-        sidebar_title = QLabel("Options")
+        sidebar_title = QLabel("Plots")
         sidebar_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         dock.setTitleBarWidget(sidebar_title)
         dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea)
@@ -51,9 +81,8 @@ class MainWindow(QMainWindow):
         boxplot_button.clicked.connect(self.plot_box_plot)
         dock_layout.addWidget(boxplot_button)
 
-        # dock_layout.addWidget(QPushButton("Scatter Plot"))
-        # dock_layout.addWidget(QPushButton("Line Chart"))
-        # dock_layout.addWidget(QPushButton("Pie Chart"))
+        dock_layout.addWidget(QPushButton("Scatter Plot"))
+        dock_layout.addWidget(QPushButton("Pie Chart"))
 
         dock_layout.addStretch()
 
@@ -67,6 +96,26 @@ class MainWindow(QMainWindow):
 
         dock.setWidget(scroll_area)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, dock)
+
+    def insert_row(self):
+        current_row_count = self.table.rowCount()
+        self.table.insertRow(current_row_count)
+
+    def insert_column(self):
+        current_column_count = self.table.columnCount()
+        self.table.insertColumn(current_column_count)
+        self.table.setHorizontalHeaderItem(
+            current_column_count, QTableWidgetItem(f"var{current_column_count + 1}"))
+
+    def delete_row(self):
+        current_row_count = self.table.rowCount()
+        if current_row_count > 0:
+            self.table.removeRow(current_row_count - 1)
+
+    def delete_column(self):
+        current_column_count = self.table.columnCount()
+        if current_column_count > 0:
+            self.table.removeColumn(current_column_count - 1)
 
     def import_data(self):
         file_name, _ = QFileDialog.getOpenFileName(
@@ -241,8 +290,7 @@ class MainWindow(QMainWindow):
             plots.plot_box_plot(numeric_col, numeric_data)
 
 
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    window.show()
-    sys.exit(app.exec())
+app = QApplication(sys.argv)
+window = MainWindow()
+window.show()
+sys.exit(app.exec())
