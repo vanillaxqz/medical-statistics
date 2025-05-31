@@ -1,8 +1,7 @@
-pandas
-matplotlib
-scipy
-numpy
-seaborn
-statsmodels
-bioinfokit
 pyqt6
+matplotlib
+pandas
+numpy
+scipy
+scikit-learn
+skcikit-survival
