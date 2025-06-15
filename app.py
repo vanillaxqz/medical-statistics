@@ -5,14 +5,17 @@ from PyQt6.QtWidgets import (
     QToolBar, QInputDialog, QLabel, QFileDialog, QMessageBox,
     QToolButton, QMenu, QInputDialog, QDialog, QVBoxLayout,
     QWidget, QCheckBox, QDialogButtonBox, QHBoxLayout,
-    QFormLayout, QComboBox
+    QFormLayout, QComboBox, QLineEdit, QTextEdit
 )
-from PyQt6.QtGui import QKeySequence, QShortcut
+from PyQt6.QtGui import QKeySequence, QShortcut, QTextCursor
 from PyQt6.QtCore import Qt
 import plots
 import pandas as pd
+import numpy as np
 import matplotlib.pyplot as _plt
 import re
+from google import genai
+from google.genai import types
 
 
 class MainWindow(QMainWindow):
@@ -21,6 +24,52 @@ class MainWindow(QMainWindow):
 
         self.setWindowTitle("Medical Statistics")
         self.setMinimumSize(1000, 600)
+
+        # assistant info
+        self.client = genai.Client(
+            api_key="AIzaSyB7iAlzXI84MnhXeSZCKaUeOzZtXoMzRnU")
+
+        full_sys = (
+            "You are the in-app assistant for a medical statistics desktop application called “Medical Statistics.” "
+            "This app supports these toolbar functions:\n"
+            "- Histogram\n"
+            "- Box Plot\n"
+            "- Scatter Plot (1D, 2D, Overlaid)\n"
+            "- Pie Chart\n"
+            "- Bar Chart (single and grouped)\n"
+            "- Scatter Matrix\n"
+            "- Kaplan–Meier Survival Plot\n"
+            "- K-Means (elbow and clustering)\n"
+            "- Linear Regression\n"
+            "- Exponential Regression\n"
+            "- One-Way ANOVA\n"
+            "- Binary Logistic Regression\n\n"
+            "Behavior rules:\n"
+            "1. For questions about built-in functions, reply briefly with what it does and how to invoke it.\n"
+            "2. If asked for medical use-cases of a supported plot, suggest one or two scenarios and include a concrete example (e.g. “Use a scatter plot to examine fasting glucose vs. insulin in diabetic patients”).\n"
+            "3. If the user requests an analysis not currently available (e.g. power regression on columns 'col1' and 'col2'), respond only with a self-contained Python snippet that:\n"
+            "   • Assumes a pandas DataFrame named `df` already built from the table, with all numeric columns cast to floats.\n"
+            "   • Reads the specified column names dynamically, for example:\n"
+            "       ```python\n"
+            "       cols = ['col1','col2']\n"
+            "       data = {c: df[c].astype(float).tolist() for c in cols}\n"
+            "       ```\n"
+            "   • Imports any needed libraries (`pandas`, `numpy`, `scipy.optimize.curve_fit`, `matplotlib.pyplot`).\n"
+            "   • Fits the requested model and plots it with `plt.show()`.\n"
+            "   • **Before** the final `plt.show()`, include exactly these three lines to title and save the figure:\n"
+            "       ```python\n"
+            "       manager = plt.get_current_fig_manager()\n"
+            "       manager.window.setWindowTitle(\"Assistant plot\")\n"
+            "       plots.save_on_close(plt.gcf(), \"assisted_plot\", subfolder=\"gen_plots\")\n"
+            "       plt.show()\n"
+            "       ```\n"
+            "4. Only return Python code when the user explicitly asks for an analysis not supported by the built-in buttons. Otherwise, follow rules 1 & 2 and do not return code. Python code **should not** be returned with any other text"
+        )
+
+        self.chat_session = self.client.chats.create(
+            model="gemini-2.0-flash",
+            history=[types.ModelContent(parts=[types.Part(text=full_sys)])]
+        )
 
         # toolbar - facem actions (butoane) si le adaugam in toolbar, conectam fiecare buton la o functie
         toolbar = QToolBar("Toolbar")
@@ -70,7 +119,39 @@ class MainWindow(QMainWindow):
         set_headers = toolbar.addAction("Set Column Headers")
         set_headers.triggered.connect(self.set_row_as_hheaders)
 
+        chat_toggle = toolbar.addAction("Assistant")
+        chat_toggle.triggered.connect(
+            lambda: self.chat_dock.setVisible(not self.chat_dock.isVisible()))
+
         self.addToolBar(toolbar)
+
+        # chat widget
+        self.chat_dock = QDockWidget("Assistant", self)
+        self.chat_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea)
+        self.chat_dock.setFeatures(
+            QDockWidget.DockWidgetFeature.DockWidgetClosable)
+        self.chat_dock.setVisible(False)
+
+        chat_container = QWidget()
+        chat_layout = QVBoxLayout(chat_container)
+
+        self.chat_display = QTextEdit()
+        self.chat_display.setReadOnly(True)
+        self.chat_display.setPlaceholderText(
+            "Chat history will appear here...")
+        self.chat_input = QLineEdit()
+        chat_send_btn = QPushButton("Send")
+
+        chat_send_btn.clicked.connect(self.handle_chat)
+        self.chat_input.returnPressed.connect(self.handle_chat)
+
+        chat_layout.addWidget(self.chat_display)
+        chat_layout.addWidget(self.chat_input)
+        chat_layout.addWidget(chat_send_btn)
+
+        self.chat_dock.setWidget(chat_container)
+        self.addDockWidget(
+            Qt.DockWidgetArea.RightDockWidgetArea, self.chat_dock)
 
         # spreadsheet
         self.table = QTableWidget(15, 8)
@@ -153,6 +234,14 @@ class MainWindow(QMainWindow):
         anova_btn = QPushButton("ANOVA")
         anova_btn.clicked.connect(self.run_anova)
         dock_layout.addWidget(anova_btn)
+
+        logistic_reg_btn = QPushButton("Binary Log. Regression")
+        logistic_reg_btn.clicked.connect(self.run_logistic)
+        dock_layout.addWidget(logistic_reg_btn)
+
+        exp_reg_btn = QPushButton("Exponential Regression")
+        exp_reg_btn.clicked.connect(self.run_exp_regression)
+        dock_layout.addWidget(exp_reg_btn)
 
         dock_layout.addStretch()
 
@@ -1503,6 +1592,182 @@ class MainWindow(QMainWindow):
             return
 
         plots.perform_anova(groups)
+
+    def run_logistic(self):
+        cols = [self.table.horizontalHeaderItem(i).text()
+                for i in range(self.table.columnCount())]
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Logistic Regression: Select Columns")
+        layout = QFormLayout(dlg)
+
+        cb_x = QComboBox(dlg)
+        cb_x.addItems(cols)
+        cb_y = QComboBox(dlg)
+        cb_y.addItems(cols)
+        layout.addRow("Feature (X):", cb_x)
+        layout.addRow("Binary Label (Y):", cb_y)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
+            parent=dlg
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        layout.addRow(buttons)
+        dlg.setLayout(layout)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        x_col = cb_x.currentText()
+        y_col = cb_y.currentText()
+        if x_col == y_col:
+            QMessageBox.warning(self, "Invalid Selection",
+                                "X and Y must be different columns.")
+            return
+
+        data = []
+        for r in range(self.table.rowCount()):
+            row_data = [
+                self.table.item(r, c).text() if self.table.item(r, c) else ""
+                for c in range(self.table.columnCount())
+            ]
+            data.append(row_data)
+        df = pd.DataFrame(data, columns=cols)
+
+        df[x_col] = pd.to_numeric(df[x_col], errors='coerce')
+        df[y_col] = pd.to_numeric(df[y_col], errors='coerce')
+        df_clean = df.dropna(subset=[x_col, y_col])
+        df_clean = df_clean[df_clean[y_col].isin([0, 1])]
+        if df_clean.empty:
+            QMessageBox.warning(
+                self, "Invalid Data",
+                "No valid numeric feature values or binary labels (0/1) found.")
+            return
+
+        plots.plot_logistic_regression(df_clean, x_col, y_col)
+
+    def run_exp_regression(self):
+        cols = [self.table.horizontalHeaderItem(
+            i).text() for i in range(self.table.columnCount())]
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Exponential Regression: Select Axes")
+        form = QFormLayout(dlg)
+
+        cb_x = QComboBox(dlg)
+        cb_x.addItems(cols)
+        cb_y = QComboBox(dlg)
+        cb_y.addItems(cols)
+        form.addRow("X:", cb_x)
+        form.addRow("Y:", cb_y)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok |
+            QDialogButtonBox.StandardButton.Cancel,
+            parent=dlg
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        form.addRow(buttons)
+        dlg.setLayout(form)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+
+        x_col = cb_x.currentText()
+        y_col = cb_y.currentText()
+        if x_col == y_col:
+            QMessageBox.warning(self, "Invalid selection",
+                                "Please pick two different columns.")
+            return
+
+        data = []
+        for r in range(self.table.rowCount()):
+            row = [self.table.item(r, c).text() if self.table.item(
+                r, c) else "" for c in range(self.table.columnCount())]
+            data.append(row)
+        df = pd.DataFrame(data, columns=cols)
+
+        try:
+            df[x_col] = pd.to_numeric(df[x_col], errors="raise")
+            df[y_col] = pd.to_numeric(df[y_col], errors="raise")
+        except Exception as e:
+            QMessageBox.critical(self, "Conversion Error",
+                                 f"Error converting columns: {e}")
+            return
+
+        plots.plot_exponential_reg(df, x_col, y_col)
+
+    def handle_chat(self):
+        text = self.chat_input.text().strip()
+        if not text:
+            return
+
+        user_html = f"<div style='margin:4px 0; padding-bottom:2px; border-bottom:1px solid #444;'>" \
+            f"<b>You:</b> {text}<br>"
+        self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+        self.chat_display.insertHtml(user_html)
+        self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+        self.chat_input.clear()
+
+        resp = self.chat_session.send_message(text)
+        reply = resp.text.strip()
+
+        if reply.startswith("```"):
+            code = re.sub(r"^```(?:python)?|```$", "",
+                          reply, flags=re.I).strip()
+            self._exec_snippet(code)
+        else:
+            ai_html = f"<b>AI:</b> {reply}</div>"
+            self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+            self.chat_display.insertHtml(ai_html)
+            self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+
+    def _build_exec_namespace(self):
+        import plots
+        import pandas as pd
+
+        headers = [self.table.horizontalHeaderItem(i).text()
+                   for i in range(self.table.columnCount())]
+        data = []
+        for r in range(self.table.rowCount()):
+            row = []
+            for c in range(self.table.columnCount()):
+                item = self.table.item(r, c)
+                txt = item.text().strip() if item else ""
+                row.append(txt)
+            data.append(row)
+        df = pd.DataFrame(data, columns=headers)
+
+        df = df.apply(lambda col: pd.to_numeric(col, errors="ignore"))
+
+        numeric_cols = df.select_dtypes(include="number").columns.tolist()
+
+        df[numeric_cols] = df[numeric_cols].replace(
+            [plots.np.inf, -plots.np.inf], plots.np.nan)
+        df = df.dropna(axis=0, subset=numeric_cols, how="all")
+
+        return {
+            "self": self,
+            "df": df,
+            "pd": pd,
+            "plt": plots.plt,
+            "curve_fit": plots.curve_fit,
+            "LinearRegression": plots.LinearRegression,
+            "LogisticRegression": plots.LogisticRegression,
+            "f_oneway": plots.f_oneway,
+            "KMeans": plots.KMeans,
+            "plots": plots,
+        }
+
+    def _exec_snippet(self, code: str):
+        ns = self._build_exec_namespace()
+        try:
+            exec(code, globals(), ns)
+        except Exception as e:
+            QMessageBox.critical(self, "Execution Error", str(e))
 
 
 app = QApplication(sys.argv)

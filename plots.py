@@ -1,10 +1,12 @@
 from sklearn.cluster import KMeans
 from sksurv.nonparametric import kaplan_meier_estimator
-from sklearn.linear_model import LinearRegression
+from sklearn.linear_model import LinearRegression, LogisticRegression
 from scipy.stats import f_oneway, probplot
+from scipy.optimize import curve_fit
 from collections import Counter
 from datetime import datetime
 import matplotlib.pyplot as plt
+import pandas as pd
 import numpy as np
 import math
 import os
@@ -584,4 +586,63 @@ def perform_anova(groups: dict[str, list[float]]):
     manager = plt.get_current_fig_manager()
     manager.window.setWindowTitle("Anova 1 way")
     save_on_close(fig, "anova_1way", subfolder="anova_plots")
+    plt.show()
+
+
+def plot_logistic_regression(df, x_col, y_col):
+    X = df[[x_col]].astype(float).to_numpy()
+    y = df[y_col].astype(int).to_numpy()
+
+    model = LogisticRegression()
+    model.fit(X, y)
+
+    x_min, x_max = X.min(), X.max()
+    X_grid = np.linspace(x_min, x_max, 300).reshape(-1, 1)
+    probs = model.predict_proba(X_grid)[:, 1]
+
+    fig = plt.figure(figsize=(6, 4))
+
+    plt.scatter(X, y, alpha=0.6, edgecolor='k', label='data')
+    plt.plot(X_grid, probs, linewidth=2, label=f"P({y_col}=1)")
+    plt.xlabel(x_col)
+    plt.ylabel(f"Probability of {y_col}=1")
+    plt.title(f"Logistic Regression: {y_col} vs {x_col}")
+    plt.legend()
+    plt.tight_layout()
+
+    manager = plt.get_current_fig_manager()
+    manager.window.setWindowTitle("Logistic Regression")
+    save_on_close(fig, f"logistic_{x_col}_vs_{y_col}",
+                  subfolder="regression_plots")
+    plt.show()
+
+
+def exp_func(x, a, b):
+    return a * np.exp(b * x)
+
+
+def plot_exponential_reg(df, x_col, y_col):
+    data = df[[x_col, y_col]].dropna().to_numpy(dtype=float)
+    x = data[:, 0]
+    y = data[:, 1]
+
+    params, _ = curve_fit(exp_func, x, y, maxfev=10000)
+    a, b = params
+
+    x_sorted = np.sort(x)
+    y_pred = exp_func(x_sorted, a, b)
+
+    plt.figure()
+    plt.scatter(x, y, label="Data", edgecolor='black', alpha=0.7)
+    plt.plot(x_sorted, y_pred, color='red',
+             label=f"y = {a:.2f} * e^({b:.2f}x)")
+    plt.xlabel(x_col)
+    plt.ylabel(y_col)
+    plt.title(f"Exponential Regression: {y_col} vs {x_col}")
+    plt.legend()
+    plt.tight_layout()
+    manager = plt.get_current_fig_manager()
+    manager.window.setWindowTitle("Exponential Regression")
+    save_on_close(plt.gcf(), "exponential_regression",
+                  subfolder="regression_plots")
     plt.show()
