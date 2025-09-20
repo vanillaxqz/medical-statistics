@@ -6,6 +6,7 @@ from scipy.optimize import curve_fit
 from collections import Counter
 from datetime import datetime
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 import pandas as pd
 import numpy as np
 import math
@@ -13,6 +14,17 @@ import os
 
 dir = os.path.dirname(__file__)
 plots_dir = os.path.join(dir, "plots")
+
+mpl.rcParams['font.size'] = 12
+
+mpl.rcParams['axes.titlesize'] = 13
+
+# Tick labels
+mpl.rcParams['xtick.labelsize'] = 13
+mpl.rcParams['ytick.labelsize'] = 13
+
+# Axis labels
+mpl.rcParams['axes.labelsize'] = 13
 
 
 def save_on_close(fig, name, subfolder=None):
@@ -134,6 +146,7 @@ def plot_grouped_box_plot(numeric_label, grouping_label, grouped_data):
     manager = plt.get_current_fig_manager()
     manager.window.setWindowTitle("Box Plot")
     save_on_close(plt.gcf(), "boxplot", subfolder="boxplots")
+    plt.grid(True)
     plt.show()
 
 
@@ -175,6 +188,7 @@ def plot_scatter(x_label, y_label, x_data, y_data):
     plt.xlabel(x_label)
     plt.ylabel(y_label)
     plt.tight_layout()
+    plt.grid(True)
     manager = plt.get_current_fig_manager()
     manager.window.setWindowTitle("Scatter Plot")
     save_on_close(plt.gcf(), "scatterplot", subfolder="scatterplots")
@@ -219,7 +233,7 @@ def plot_scatter_1d(data_dict):
     plt.xlabel("Value")
     plt.title("1D Scatter of Selected Variables")
     plt.legend(loc="upper right", bbox_to_anchor=(1.2, 1))
-
+    plt.grid(True)
     plt.tight_layout()
     manager = plt.get_current_fig_manager()
     manager.window.setWindowTitle("Scatter Plot")
@@ -354,6 +368,7 @@ def plot_grouped_bar_chart(var_labels, group_labels, grouped_means, grouping_var
     manager = plt.get_current_fig_manager()
     manager.window.setWindowTitle("Bar Chart")
     save_on_close(plt.gcf(), "barchart", subfolder="barcharts")
+    plt.grid(True)
     plt.show()
 
 
@@ -449,7 +464,7 @@ def plot_kmeans_scatter(df, x_col, y_col, k):
     centers = km.cluster_centers_
 
     plt.figure()
-    plt.scatter(data[:, 0], data[:, 1], c=labels)
+    plt.scatter(data[:, 0], data[:, 1], c=labels, edgecolors='k')
     plt.scatter(centers[:, 0], centers[:, 1],
                 marker='X', s=50, edgecolor='k')
     plt.xlabel(x_col)

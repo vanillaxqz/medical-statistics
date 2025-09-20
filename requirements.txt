@@ -5,3 +5,5 @@ numpy
 scipy
 scikit-learn
 skcikit-survival
+markdown
+google-genai

@@ -7,9 +7,10 @@ from PyQt6.QtWidgets import (
     QWidget, QCheckBox, QDialogButtonBox, QHBoxLayout,
     QFormLayout, QComboBox, QLineEdit, QTextEdit
 )
-from PyQt6.QtGui import QKeySequence, QShortcut, QTextCursor
+from PyQt6.QtGui import QKeySequence, QShortcut, QTextCursor, QFont
 from PyQt6.QtCore import Qt
 import plots
+import markdown
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as _plt
@@ -30,46 +31,49 @@ class MainWindow(QMainWindow):
             api_key="AIzaSyB7iAlzXI84MnhXeSZCKaUeOzZtXoMzRnU")
 
         full_sys = (
-            "You are the in-app assistant for a medical statistics desktop application called “Medical Statistics.” "
-            "This app supports these toolbar functions:\n"
-            "- Histogram\n"
-            "- Box Plot\n"
-            "- Scatter Plot (1D, 2D, Overlaid)\n"
-            "- Pie Chart\n"
-            "- Bar Chart (single and grouped)\n"
-            "- Scatter Matrix\n"
-            "- Kaplan–Meier Survival Plot\n"
-            "- K-Means (elbow and clustering)\n"
-            "- Linear Regression\n"
-            "- Exponential Regression\n"
-            "- One-Way ANOVA\n"
-            "- Binary Logistic Regression\n\n"
-            "Behavior rules:\n"
-            "1. For questions about built-in functions, reply briefly with what it does and how to invoke it.\n"
-            "2. If asked for medical use-cases of a supported plot, suggest one or two scenarios and include a concrete example (e.g. “Use a scatter plot to examine fasting glucose vs. insulin in diabetic patients”).\n"
-            "3. If the user requests an analysis not currently available (e.g. power regression on columns 'col1' and 'col2'), respond only with a self-contained Python snippet that:\n"
-            "   • Assumes a pandas DataFrame named `df` already built from the table, with all numeric columns cast to floats.\n"
-            "   • Reads the specified column names dynamically, for example:\n"
+            "You are the in-app assistant for the Medical Statistics desktop application. "
+            "This app provides these built-in tools: Histogram, Box Plot, Scatter Plot (1D, 2D, Overlaid), Pie Chart, "
+            "Bar Chart (single and grouped), Scatter Matrix, Line Graph, Kaplan–Meier Survival Plot, K-Means (elbow and clustering), "
+            "Linear Regression, Exponential Regression, One-Way ANOVA, and Binary Logistic Regression.\n\n"
+            "Behavior:\n"
+            "1. When asked about a built-in function, give a concise description and instructions for invoking it.\n"
+            "2. When asked for medical use-cases of a supported plot, offer one or two scenarios with a concrete example "
+            "(e.g., “Use a scatter plot to compare fasting glucose vs. insulin in diabetic patients.”).\n"
+            "3. If the user explicitly requests to run or generate an analysis not available via the toolbar "
+            "(keywords like “run,” “generate,” or “implement”), immediately return ONLY a self-contained Python snippet that:\n"
+            "   • Assumes a pandas DataFrame named df with numeric columns.\n"
+            "   • Dynamically reads the specified columns, for example:\n"
             "       ```python\n"
-            "       cols = ['col1','col2']\n"
+            "       cols = ['col1', 'col2']\n"
             "       data = {c: df[c].astype(float).tolist() for c in cols}\n"
             "       ```\n"
-            "   • Imports any needed libraries (`pandas`, `numpy`, `scipy.optimize.curve_fit`, `matplotlib.pyplot`).\n"
-            "   • Fits the requested model and plots it with `plt.show()`.\n"
-            "   • **Before** the final `plt.show()`, include exactly these three lines to title and save the figure:\n"
+            "   • Imports needed libraries (pandas, numpy, scipy.optimize.curve_fit, matplotlib.pyplot).\n"
+            "   • Fits the requested model and plots it.\n"
+            "   • Inserts exactly these lines before plt.show():\n"
             "       ```python\n"
             "       manager = plt.get_current_fig_manager()\n"
             "       manager.window.setWindowTitle(\"Assistant plot\")\n"
             "       plots.save_on_close(plt.gcf(), \"assisted_plot\", subfolder=\"gen_plots\")\n"
-            "       plt.show()\n"
             "       ```\n"
-            "4. Only return Python code when the user explicitly asks for an analysis not supported by the built-in buttons. Otherwise, follow rules 1 & 2 and do not return code. Python code **should not** be returned with any other text"
+            "   • Calls plt.show() immediately after.\n"
+            "4. Never respond with “not implemented” or ask for clarification when the user requests an unsupported analysis—always provide the code snippet as specified.\n"
+            "5. If the user asks what alternatives or other features they can use to achieve a task not directly supported, suggest existing tools or workflows in the app that could accomplish a similar goal, with brief instructions on using them."
         )
 
-        self.chat_session = self.client.chats.create(
-            model="gemini-2.0-flash",
-            history=[types.ModelContent(parts=[types.Part(text=full_sys)])]
-        )
+        try:
+            self.chat_session = self.client.chats.create(
+                model="gemini-2.0-flash",
+                history=[types.ModelContent(parts=[types.Part(text=full_sys)])]
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Assistant Startup Failed",
+                f"Could not connect to the assistant:\n{e}"
+            )
+            self.chat_input.setEnabled(False)
+            chat_send_btn.setEnabled(False)
+            return
 
         # toolbar - facem actions (butoane) si le adaugam in toolbar, conectam fiecare buton la o functie
         toolbar = QToolBar("Toolbar")
@@ -141,13 +145,20 @@ class MainWindow(QMainWindow):
             "Chat history will appear here...")
         self.chat_input = QLineEdit()
         chat_send_btn = QPushButton("Send")
+        self.chat_input.setFixedHeight(self.chat_input.sizeHint().height() * 2)
+        chat_send_btn.setFixedSize(60, self.chat_input.sizeHint().height() * 2)
 
         chat_send_btn.clicked.connect(self.handle_chat)
         self.chat_input.returnPressed.connect(self.handle_chat)
 
         chat_layout.addWidget(self.chat_display)
-        chat_layout.addWidget(self.chat_input)
-        chat_layout.addWidget(chat_send_btn)
+
+        input_row = QHBoxLayout()
+        input_row.addWidget(self.chat_input)
+        input_row.addWidget(chat_send_btn)
+        chat_layout.addLayout(input_row)
+        # chat_layout.addWidget(self.chat_input)
+        # chat_layout.addWidget(chat_send_btn)
 
         self.chat_dock.setWidget(chat_container)
         self.addDockWidget(
@@ -219,14 +230,6 @@ class MainWindow(QMainWindow):
         survival_button.clicked.connect(self.plot_survival)
         dock_layout.addWidget(survival_button)
 
-        kmeans_button = QPushButton("K-Means")
-        kmeans_button.clicked.connect(self.run_kmeans)
-        dock_layout.addWidget(kmeans_button)
-
-        linregression_button = QPushButton("Linear Regression")
-        linregression_button.clicked.connect(self.run_linear_regression)
-        dock_layout.addWidget(linregression_button)
-
         linegraph_button = QPushButton("Line Graph")
         linegraph_button.clicked.connect(self.plot_line_graph)
         dock_layout.addWidget(linegraph_button)
@@ -235,6 +238,10 @@ class MainWindow(QMainWindow):
         anova_btn.clicked.connect(self.run_anova)
         dock_layout.addWidget(anova_btn)
 
+        linregression_button = QPushButton("Linear Regression")
+        linregression_button.clicked.connect(self.run_linear_regression)
+        dock_layout.addWidget(linregression_button)
+
         logistic_reg_btn = QPushButton("Binary Log. Regression")
         logistic_reg_btn.clicked.connect(self.run_logistic)
         dock_layout.addWidget(logistic_reg_btn)
@@ -242,6 +249,13 @@ class MainWindow(QMainWindow):
         exp_reg_btn = QPushButton("Exponential Regression")
         exp_reg_btn.clicked.connect(self.run_exp_regression)
         dock_layout.addWidget(exp_reg_btn)
+
+        kmeans_button = QPushButton("K-Means")
+        kmeans_button.clicked.connect(self.run_kmeans)
+        dock_layout.addWidget(kmeans_button)
+        # generate_data = QPushButton("Generate Data")
+        # generate_data.clicked.connect(self.generate_missing_data)
+        # dock_layout.addWidget(generate_data)
 
         dock_layout.addStretch()
 
@@ -1705,22 +1719,32 @@ class MainWindow(QMainWindow):
         if not text:
             return
 
-        user_html = f"<div style='margin:4px 0; padding-bottom:2px; border-bottom:1px solid #444;'>" \
-            f"<b>You:</b> {text}<br>"
+        user_html = (
+            f'<span style="color:#aaffaa; font-weight:bold;">You:</span> {text}<br>'
+        )
         self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
         self.chat_display.insertHtml(user_html)
         self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
         self.chat_input.clear()
 
-        resp = self.chat_session.send_message(text)
-        reply = resp.text.strip()
+        try:
+            resp = self.chat_session.send_message(text)
+            reply = resp.text.strip()
+        except Exception as e:
+            err_msg = f"Network error: {e}"
+            QMessageBox.warning(self, "Assistant Error", err_msg)
+            self.chat_display.insertHtml(f"<b>AI:</b> <i>{err_msg}</i></div>")
+            self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
+            return
 
         if reply.startswith("```"):
             code = re.sub(r"^```(?:python)?|```$", "",
                           reply, flags=re.I).strip()
             self._exec_snippet(code)
         else:
-            ai_html = f"<b>AI:</b> {reply}</div>"
+            md_html = markdown.markdown(reply, extensions=['extra', 'nl2br'])
+            ai_html = ('<span style="color:#aaaaff; font-weight:bold;">AI:</span>'
+                       f'{md_html}<br>')
             self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
             self.chat_display.insertHtml(ai_html)
             self.chat_display.moveCursor(QTextCursor.MoveOperation.End)
@@ -1771,6 +1795,8 @@ class MainWindow(QMainWindow):
 
 
 app = QApplication(sys.argv)
+font = QFont("Segoe UI", 12)
+app.setFont(font)
 window = MainWindow()
 window.show()
 sys.exit(app.exec())
